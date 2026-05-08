@@ -86,6 +86,37 @@ class MainWindow: Window {
         self.viewModel.goForward(MainWindow.makeSlideTransition(effect: .fromRight))
         self.renderSelectedTab()
     }
+    private lazy var closeOtherTabsButton: Button = {
+        let icon = FontIcon()
+        icon.glyph = "\u{E8BB}"
+        icon.fontSize = 12
+        let btn = Button()
+        btn.content = icon
+        btn.width = 28
+        btn.height = 28
+        btn.minWidth = 0
+        btn.minHeight = 0
+        btn.margin = Thickness(left: 4, top: 0, right: 4, bottom: 0)
+        btn.verticalAlignment = .center
+        btn.padding = Thickness(left: 0, top: 0, right: 0, bottom: 0)
+        btn.allowFocusOnInteraction = false
+        let transparent = SolidColorBrush(Colors.transparent)
+        let hoverBrush = SolidColorBrush(UWP.Color(a: 0x18, r: 0x80, g: 0x80, b: 0x80))
+        let pressedBrush = SolidColorBrush(UWP.Color(a: 0x30, r: 0x80, g: 0x80, b: 0x80))
+        for key in ["ButtonBackground", "ButtonBackgroundDisabled"] {
+            _ = btn.resources.insert(key, transparent)
+        }
+        _ = btn.resources.insert("ButtonBackgroundPointerOver", hoverBrush)
+        _ = btn.resources.insert("ButtonBackgroundPressed", pressedBrush)
+        for key in ["ButtonBorderBrush", "ButtonBorderBrushPointerOver",
+                    "ButtonBorderBrushPressed", "ButtonBorderBrushDisabled"] {
+            _ = btn.resources.insert(key, transparent)
+        }
+        btn.click.addHandler { [weak self] _, _ in
+            self?.closeOtherTabs()
+        }
+        return btn
+    }()
     private lazy var searchBox: AutoSuggestBox? = {
         // let box = AutoSuggestBox()
         // box.width = 360
@@ -144,6 +175,9 @@ class MainWindow: Window {
         tabs.isAddTabButtonVisible = true
         tabs.tabWidthMode = .equal
         tabs.closeButtonOverlayMode = .onPointerOver
+        tabs.tabStripHeader = closeOtherTabsButton
+        tabs.padding = Thickness(left: 0, top: 0, right: 0, bottom: 0)
+        tabs.margin = Thickness(left: 0, top: -1, right: 0, bottom: 0)
         return tabs
     } ()
     private lazy var tabContentHost = Grid()
@@ -185,7 +219,8 @@ class MainWindow: Window {
         nav.compactModeThresholdWidth = 0
         nav.expandedModeThresholdWidth = length + viewModel.windowLayout.navigationViewExpandedModeThresholdContentWidth
         nav.isPaneOpen = viewModel.windowLayout.navigationViewPaneOpen
-        nav.openPaneLength = length        
+        nav.openPaneLength = length
+        nav.isTitleBarAutoPaddingEnabled = false
         nav.content = navigationContentRoot
 
         return nav
@@ -589,6 +624,11 @@ class MainWindow: Window {
         renderSelectedTab()
     }
 
+    private func closeOtherTabs() {
+        viewModel.closeOtherTabs()
+        renderSelectedTab()
+    }
+
     private func firstNavigationItemURL() -> URL? {
         return firstNavigationItemURL(in: navigationView.menuItems)
             ?? firstNavigationItemURL(in: navigationView.footerMenuItems)
@@ -632,7 +672,8 @@ class MainWindow: Window {
         parts.headerBorder = nil
         tabPageViewPartsByID[tabID] = parts
 
-        guard let header = page.header else {
+        // String headers are shown as tab titles; only UIElement headers are rendered inline
+        guard let view = page.header as? UIElement else {
             return page.content
         }
 
@@ -644,22 +685,10 @@ class MainWindow: Window {
         grid.rowDefinitions.append(autoRow)
         grid.rowDefinitions.append(starRow)
 
-        // Row 0: header, margin matches NavigationViewHeaderMargin (56,44,0,0)
+        // Row 0: UIElement header (no legacy NavigationView margin needed)
         let headerBorder = Border()
-        headerBorder.margin = Thickness(left: 56, top: 44, right: 0, bottom: 0)
-        if let text = header as? String {
-            let tb = TextBlock()
-            tb.text = text
-            tb.fontSize = 28
-            tb.fontWeight = FontWeights.semiBold
-            tb.textWrapping = .wrap
-            headerBorder.child = tb
-        } else if let view = header as? UIElement {
-            headerBorder.child = view
-            parts.headerBorder = headerBorder
-        } else {
-            return page.content
-        }
+        headerBorder.child = view
+        parts.headerBorder = headerBorder
 
         // Row 1: content
         let contentBorder = Border()

@@ -151,6 +151,13 @@ class MainWindowViewModel {
         navigationRevision += 1
     }
 
+    func closeOtherTabs() {
+        guard let tab = selectedTab, tabs.count > 1 else { return }
+        tabs = [tab]
+        syncLegacyHistory()
+        navigationRevision += 1
+    }
+
     func dumpHistory() {
         for (index, page) in (selectedTab?.backwardPages ?? []).enumerated() {
             log.info("\(index) <===\(page.url)")
