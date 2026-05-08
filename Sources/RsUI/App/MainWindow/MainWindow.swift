@@ -23,10 +23,16 @@ fileprivate extension WindowPosition {
 }
 
 /// 主窗口类，管理整个应用的导航和 UI 布局
+private final class PageViewParts {
+    var contentBorder: Border?
+    var headerBorder: Border?
+}
+
 class MainWindow: Window {
     // MARK: - 属性
     private var viewModel: MainWindowViewModel! = MainWindowViewModel()
     private var isSyncingSelection = false
+    private var isSyncingTabSelection = false
 
     // Splitter state
     private var splitterBorder: Border!
@@ -71,10 +77,14 @@ class MainWindow: Window {
     }
 
     private lazy var backButton: Button = MainWindow.makeNavButton(glyph: "\u{E72B}") { [weak self] in
-        self?.viewModel.goBack(MainWindow.makeSlideTransition(effect: .fromLeft))
+        guard let self else { return }
+        self.viewModel.goBack(MainWindow.makeSlideTransition(effect: .fromLeft))
+        self.renderSelectedTab()
     }
     private lazy var forwardButton: Button = MainWindow.makeNavButton(glyph: "\u{E72A}") { [weak self] in
-        self?.viewModel.goForward(MainWindow.makeSlideTransition(effect: .fromRight))
+        guard let self else { return }
+        self.viewModel.goForward(MainWindow.makeSlideTransition(effect: .fromRight))
+        self.renderSelectedTab()
     }
     private lazy var searchBox: AutoSuggestBox? = {
         // let box = AutoSuggestBox()
@@ -129,9 +139,39 @@ class MainWindow: Window {
 
         return bar
     } ()
-    private lazy var navigationContentFrame = PageTransitionHost()
-    private var pageViewContentBorder: Border?
-    private var pageViewHeaderBorder: Border?
+    private lazy var tabView: TabView = {
+        let tabs = TabView()
+        tabs.isAddTabButtonVisible = true
+        tabs.tabWidthMode = .equal
+        tabs.closeButtonOverlayMode = .onPointerOver
+        return tabs
+    } ()
+    private lazy var tabContentHost = Grid()
+    private lazy var navigationContentRoot: Grid = {
+        let grid = Grid()
+
+        let tabRow = RowDefinition()
+        tabRow.height = GridLength(value: 1, gridUnitType: .auto)
+        let contentRow = RowDefinition()
+        contentRow.height = GridLength(value: 1, gridUnitType: .star)
+        grid.rowDefinitions.append(tabRow)
+        grid.rowDefinitions.append(contentRow)
+
+        grid.children.append(tabView)
+        try? Grid.setRow(tabView, 0)
+
+        grid.children.append(tabContentHost)
+        try? Grid.setRow(tabContentHost, 1)
+
+        return grid
+    } ()
+    private var tabItemsByID: [ObjectIdentifier: TabViewItem] = [:]
+    private var tabFramesByID: [ObjectIdentifier: PageTransitionHost] = [:]
+    private var tabPageViewPartsByID: [ObjectIdentifier: PageViewParts] = [:]
+    private var tabStripIDs: [ObjectIdentifier] = []
+    private var tabTitlesByID: [ObjectIdentifier: String] = [:]
+    private var tabClosableByID: [ObjectIdentifier: Bool] = [:]
+    private var visibleTabFrameID: ObjectIdentifier?
     private var isFirstNavigation = true
     private lazy var navigationView = {
         let nav = NavigationView()
@@ -146,7 +186,7 @@ class MainWindow: Window {
         nav.expandedModeThresholdWidth = length + viewModel.windowLayout.navigationViewExpandedModeThresholdContentWidth
         nav.isPaneOpen = viewModel.windowLayout.navigationViewPaneOpen
         nav.openPaneLength = length        
-        nav.content = navigationContentFrame
+        nav.content = navigationContentRoot
 
         return nav
     } ()
@@ -168,18 +208,40 @@ class MainWindow: Window {
     }
 
     func navigate(to page: Page, transitionInfoOverride: NavigationTransitionInfo? = nil) {
-        viewModel.navigate(to: page, transitionInfoOverride: transitionInfoOverride)
+        let inNewTab = openInNewTabRequested
+        openInNewTabRequested = false
+        navigate(to: page, transitionInfoOverride: transitionInfoOverride, inNewTab: inNewTab)
+    }
+
+    private func navigate(to page: Page, transitionInfoOverride: NavigationTransitionInfo? = nil, inNewTab: Bool) {
+        viewModel.navigate(
+            to: page,
+            transitionInfoOverride: transitionInfoOverride,
+            inNewTab: inNewTab
+        )
+        renderSelectedTab()
     }
 
     func navigate(to url: URL, transitionInfoOverride: NavigationTransitionInfo? = nil) -> Bool {
+        let inNewTab = openInNewTabRequested
+        openInNewTabRequested = false
+        return navigate(to: url, transitionInfoOverride: transitionInfoOverride, inNewTab: inNewTab)
+    }
+
+    @discardableResult
+    private func navigate(to url: URL, transitionInfoOverride: NavigationTransitionInfo? = nil, inNewTab: Bool) -> Bool {
+        if !inNewTab, viewModel.currentPage?.url == url {
+            return true
+        }
+
         if url == SettingsPage.url {
-            navigate(to: SettingsPage(), transitionInfoOverride: transitionInfoOverride)
+            navigate(to: SettingsPage(), transitionInfoOverride: transitionInfoOverride, inNewTab: inNewTab)
             return true
         } else {
             let context = WindowContext(owner: self)
             for module in App.context.modules {
                 if let page = module.navigationRequested(for: url, in: context) {
-                    navigate(to: page, transitionInfoOverride: transitionInfoOverride)
+                    navigate(to: page, transitionInfoOverride: transitionInfoOverride, inNewTab: inNewTab)
                     return true
                 }
             }
@@ -233,14 +295,30 @@ class MainWindow: Window {
             guard let self, let args, !self.isSyncingSelection else { return }
 
             if args.isSettingsSelected {
-                navigate(to: SettingsPage(), transitionInfoOverride: args.recommendedNavigationTransitionInfo)
+                navigate(to: SettingsPage(), transitionInfoOverride: SuppressNavigationTransitionInfo())
             } else if
                 let item = args.selectedItem as? NavigationViewItem,
                 let tag = item.tag,
                 let str = tag as? HString,
                 let url = URL(string: String(hString: str)) {
-                _ = navigate(to: url, transitionInfoOverride: args.recommendedNavigationTransitionInfo)
+                _ = navigate(to: url, transitionInfoOverride: SuppressNavigationTransitionInfo())
             }
+        }
+
+        tabView.selectionChanged.addHandler { [weak self] sender, args in
+            guard let self, !self.isSyncingTabSelection else { return }
+            guard let item = self.selectedTabViewItem(sender: sender, args: args) else { return }
+            guard let tab = self.tab(for: item) else { return }
+            self.switchToTab(tab)
+        }
+
+        tabView.tabCloseRequested.addHandler { [weak self] _, args in
+            guard let self, let args, let item = args.tab else { return }
+            self.closeTab(for: item)
+        }
+
+        tabView.addTabButtonClick.addHandler { [weak self] _, _ in
+            self?.openNewTabFromTabStrip()
         }
 
         navigationView.paneClosed.addHandler { [weak self] _, _ in
@@ -276,48 +354,283 @@ class MainWindow: Window {
         }
 
         let route = Observations {
-            self.viewModel.currentPage
+            self.viewModel.navigationRevision
         }
         Task { [weak self] in
             for await _ in route {
                 await MainActor.run { [weak self] in
-                    guard let self else { return }
-
-                    if let page = self.viewModel.currentPage {
-                        self.navigationView.header = nil
-                        let effectiveTransitionInfo: NavigationTransitionInfo?
-                        if isFirstNavigation {
-                            effectiveTransitionInfo = SuppressNavigationTransitionInfo()
-                            isFirstNavigation = false
-                        } else {
-                            effectiveTransitionInfo = self.viewModel.navigationTransitionInfo
-                        }
-                        self.navigationContentFrame.transition(
-                            to: self.makePageView(page),
-                            transitionInfo: effectiveTransitionInfo
-                        )
-                        self.syncNavigationSelection(for: page.url)
-                    } else {
-                        self.navigationView.header = nil
-                        self.navigationContentFrame.transition(
-                            to: nil,
-                            transitionInfo: self.viewModel.navigationTransitionInfo
-                        )
-                        self.navigationView.selectedItem = nil
-                    }
-                    
-                    self.backButton.isEnabled = !self.viewModel.backwardPages.isEmpty
-                    self.forwardButton.isEnabled = !self.viewModel.forwardPages.isEmpty
+                    self?.renderSelectedTab()
                 }
             }
         }
     }
 
-    private func makePageView(_ page: Page) -> UIElement {
-        pageViewContentBorder?.child = nil
-        pageViewHeaderBorder?.child = nil
-        pageViewContentBorder = nil
-        pageViewHeaderBorder = nil
+    private func renderSelectedTab() {
+        syncTabItems()
+        updateTabStripVisibility()
+
+        guard let tab = viewModel.selectedTab, let page = tab.currentPage else {
+            navigationView.header = nil
+            hideAllTabFrames()
+            navigationView.selectedItem = nil
+            backButton.isEnabled = false
+            forwardButton.isEnabled = false
+            return
+        }
+
+        navigationView.header = nil
+        updateTabItemState(for: tab)
+        let frame = showFrame(for: tab)
+
+        if tab.needsRender {
+            let effectiveTransitionInfo: NavigationTransitionInfo?
+            if isFirstNavigation {
+                effectiveTransitionInfo = SuppressNavigationTransitionInfo()
+                isFirstNavigation = false
+            } else {
+                effectiveTransitionInfo = tab.navigationTransitionInfo
+            }
+            frame.transition(
+                to: makePageView(page, for: tab),
+                transitionInfo: effectiveTransitionInfo
+            )
+            tab.needsRender = false
+        }
+
+        let tabItem = tabViewItem(for: tab)
+        if tabView.selectedItem as? TabViewItem !== tabItem {
+            isSyncingTabSelection = true
+            tabView.selectedItem = tabItem
+            isSyncingTabSelection = false
+        }
+
+        syncNavigationSelection(for: page.url)
+        backButton.isEnabled = !tab.backwardPages.isEmpty
+        forwardButton.isEnabled = !tab.forwardPages.isEmpty
+    }
+
+    private func syncTabItems() {
+        guard let items = tabView.tabItems else { return }
+
+        let ids = viewModel.tabs.map { ObjectIdentifier($0) }
+        let activeIDs = Set(ids)
+        tabItemsByID = tabItemsByID.filter { activeIDs.contains($0.key) }
+        tabTitlesByID = tabTitlesByID.filter { activeIDs.contains($0.key) }
+        tabClosableByID = tabClosableByID.filter { activeIDs.contains($0.key) }
+        tabPageViewPartsByID = tabPageViewPartsByID.filter { activeIDs.contains($0.key) }
+        removeClosedTabFrames(activeIDs: activeIDs)
+
+        guard ids != tabStripIDs else {
+            return
+        }
+
+        while items.size > viewModel.tabs.count {
+            items.removeAt(items.size - 1)
+        }
+
+        for (index, tab) in viewModel.tabs.enumerated() {
+            let tabItem = tabViewItem(for: tab)
+            if UInt32(index) < items.size, let item = items.getAt(UInt32(index)) as? TabViewItem, item === tabItem {
+                continue
+            }
+
+            if UInt32(index) < items.size {
+                items.removeAt(UInt32(index))
+            }
+            items.insertAt(UInt32(index), tabItem)
+        }
+        tabStripIDs = ids
+        updateAllTabItemCloseStates()
+    }
+
+    private func updateTabStripVisibility() {
+        tabView.visibility = viewModel.tabs.count <= 1 ? .collapsed : .visible
+    }
+
+    private func openNewTabFromTabStrip() {
+        if let url = firstNavigationItemURL() {
+            openInNewTabRequested = true
+            _ = navigate(to: url, transitionInfoOverride: SuppressNavigationTransitionInfo())
+        } else {
+            openInNewTabRequested = true
+            navigate(to: SettingsPage(), transitionInfoOverride: SuppressNavigationTransitionInfo())
+        }
+    }
+
+    private func tabViewItem(for tab: MainWindowTab) -> TabViewItem {
+        let id = ObjectIdentifier(tab)
+        if let item = tabItemsByID[id] {
+            return item
+        }
+
+        let item = TabViewItem()
+        item.tapped.addHandler { [weak self, weak item] _, _ in
+            guard let self, let item, let tab = self.tab(for: item) else { return }
+            self.switchToTab(tab)
+        }
+        item.closeRequested.addHandler { [weak self, weak item] _, _ in
+            guard let self, let item else { return }
+            self.closeTab(for: item)
+        }
+        tabItemsByID[id] = item
+        updateTabItemState(for: tab)
+        return item
+    }
+
+    private func updateTabItemState(for tab: MainWindowTab) {
+        let id = ObjectIdentifier(tab)
+        guard let item = tabItemsByID[id] else { return }
+
+        let newTitle = title(for: tab.currentPage)
+        if tabTitlesByID[id] != newTitle {
+            item.header = newTitle
+            tabTitlesByID[id] = newTitle
+        }
+
+        let canClose = viewModel.tabs.count > 1
+        if tabClosableByID[id] != canClose {
+            item.isClosable = canClose
+            tabClosableByID[id] = canClose
+        }
+    }
+
+    private func updateAllTabItemCloseStates() {
+        for tab in viewModel.tabs {
+            updateTabItemState(for: tab)
+        }
+    }
+
+    private func frame(for tab: MainWindowTab) -> PageTransitionHost {
+        let id = ObjectIdentifier(tab)
+        if let frame = tabFramesByID[id] {
+            return frame
+        }
+
+        let frame = PageTransitionHost()
+        frame.visibility = .collapsed
+        tabFramesByID[id] = frame
+        tabContentHost.children.append(frame)
+        return frame
+    }
+
+    private func showFrame(for tab: MainWindowTab) -> PageTransitionHost {
+        let id = ObjectIdentifier(tab)
+        let selectedFrame = frame(for: tab)
+        guard visibleTabFrameID != id else {
+            return selectedFrame
+        }
+
+        for (frameID, frame) in tabFramesByID {
+            frame.visibility = frameID == id ? .visible : .collapsed
+        }
+        visibleTabFrameID = id
+        return selectedFrame
+    }
+
+    private func hideAllTabFrames() {
+        for frame in tabFramesByID.values {
+            frame.visibility = .collapsed
+        }
+        visibleTabFrameID = nil
+    }
+
+    private func removeClosedTabFrames(activeIDs: Set<ObjectIdentifier>) {
+        let closedIDs = tabFramesByID.keys.filter { !activeIDs.contains($0) }
+        for id in closedIDs {
+            guard let frame = tabFramesByID.removeValue(forKey: id) else { continue }
+            removeTabFrame(frame)
+            if visibleTabFrameID == id {
+                visibleTabFrameID = nil
+            }
+        }
+    }
+
+    private func removeTabFrame(_ frame: PageTransitionHost) {
+        var idx: UInt32 = 0
+        if tabContentHost.children.indexOf(frame, &idx) {
+            tabContentHost.children.removeAt(idx)
+        }
+    }
+
+    private func tab(for item: TabViewItem) -> MainWindowTab? {
+        for tab in viewModel.tabs {
+            if tabItemsByID[ObjectIdentifier(tab)] === item {
+                return tab
+            }
+        }
+        return nil
+    }
+
+    private func selectedTabViewItem(sender: Any?, args: SelectionChangedEventArgs?) -> TabViewItem? {
+        if
+            let args,
+            let addedItems = args.addedItems,
+            addedItems.size > 0,
+            let item = addedItems.getAt(0) as? TabViewItem {
+            return item
+        }
+
+        if let tabView = sender as? TabView {
+            return tabView.selectedItem as? TabViewItem
+        }
+
+        return tabView.selectedItem as? TabViewItem
+    }
+
+    private func switchToTab(_ tab: MainWindowTab) {
+        guard viewModel.selectedTab !== tab else { return }
+        viewModel.select(tab: tab)
+        renderSelectedTab()
+    }
+
+    private func closeTab(for item: TabViewItem) {
+        guard let tab = tab(for: item) else { return }
+        viewModel.close(tab: tab)
+        renderSelectedTab()
+    }
+
+    private func firstNavigationItemURL() -> URL? {
+        return firstNavigationItemURL(in: navigationView.menuItems)
+            ?? firstNavigationItemURL(in: navigationView.footerMenuItems)
+    }
+
+    private func firstNavigationItemURL(in items: AnyIVector<Any?>?) -> URL? {
+        guard let items else { return nil }
+
+        for item in items {
+            guard let navItem = item as? NavigationViewItem else { continue }
+            if
+                let tag = navItem.tag,
+                let str = tag as? HString,
+                let url = URL(string: String(hString: str)) {
+                return url
+            }
+            if let url = firstNavigationItemURL(in: navItem.menuItems) {
+                return url
+            }
+        }
+
+        return nil
+    }
+
+    private func title(for page: Page?) -> String {
+        guard let page else { return tr("New Tab") }
+        if let text = page.header as? String, !text.isEmpty {
+            return text
+        }
+
+        let host = page.url.host ?? page.url.absoluteString
+        return host.isEmpty ? page.url.absoluteString : host
+    }
+
+    private func makePageView(_ page: Page, for tab: MainWindowTab) -> UIElement {
+        let tabID = ObjectIdentifier(tab)
+        let parts = tabPageViewPartsByID[tabID] ?? PageViewParts()
+        parts.contentBorder?.child = nil
+        parts.headerBorder?.child = nil
+        parts.contentBorder = nil
+        parts.headerBorder = nil
+        tabPageViewPartsByID[tabID] = parts
 
         guard let header = page.header else {
             return page.content
@@ -343,7 +656,7 @@ class MainWindow: Window {
             headerBorder.child = tb
         } else if let view = header as? UIElement {
             headerBorder.child = view
-            pageViewHeaderBorder = headerBorder
+            parts.headerBorder = headerBorder
         } else {
             return page.content
         }
@@ -351,7 +664,7 @@ class MainWindow: Window {
         // Row 1: content
         let contentBorder = Border()
         contentBorder.child = page.content
-        pageViewContentBorder = contentBorder
+        parts.contentBorder = contentBorder
 
         try? Grid.setRow(headerBorder, 0)
         try? Grid.setRow(contentBorder, 1)
@@ -371,18 +684,65 @@ class MainWindow: Window {
         guard let args = args else { return }
         let rawValue = Int(args.keyModifiers.rawValue)
         openInNewTabRequested = (rawValue & 0x1) != 0
-        print("ctrl was \((openInNewTabRequested ?? false) ? "" : "not") pressed when navigationView was clicked")
+        print("ctrl was \(openInNewTabRequested ? "" : "not") pressed when navigationView was clicked")
     }
 
     private func appendNavigationItem(_ item: NavigationViewItemBase, _ isFooter: Bool) {
-        item.pointerPressed.addHandler { [weak self] _, args in
-            self?.captureOpenInNewTabRequested(args)
+        item.pointerPressed.addHandler { [weak self, weak item] _, args in
+            guard let self else { return }
+            self.captureOpenInNewTabRequested(args)
+            guard self.openInNewTabRequested, let item else { return }
+            self.openSelectedNavigationItemInNewTabIfNeeded(item, args)
         }
         if isFooter {
             navigationView.footerMenuItems.append(item)
         } else {
             navigationView.menuItems.append(item)
         }
+    }
+
+    private func openSelectedNavigationItemInNewTabIfNeeded(_ item: NavigationViewItemBase, _ args: PointerRoutedEventArgs?) {
+        guard isNavigationItemSelected(item), let url = url(for: item) else { return }
+
+        args?.handled = true
+        openInNewTabRequested = false
+
+        let queued = (try? dispatcherQueue?.tryEnqueue { [weak self] in
+            guard let self else { return }
+            _ = self.navigate(
+                to: url,
+                transitionInfoOverride: SuppressNavigationTransitionInfo(),
+                inNewTab: true
+            )
+        }) ?? false
+
+        if !queued {
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                _ = self.navigate(
+                    to: url,
+                    transitionInfoOverride: SuppressNavigationTransitionInfo(),
+                    inNewTab: true
+                )
+            }
+        }
+    }
+
+    private func isNavigationItemSelected(_ item: NavigationViewItemBase) -> Bool {
+        guard let selectedItem = navigationView.selectedItem as? NavigationViewItemBase else { return false }
+        return selectedItem === item
+    }
+
+    private func url(for item: NavigationViewItemBase) -> URL? {
+        guard
+            let navItem = item as? NavigationViewItem,
+            let tag = navItem.tag,
+            let str = tag as? HString
+        else {
+            return nil
+        }
+
+        return URL(string: String(hString: str))
     }
 
     private func applyAppearance() {
