@@ -92,13 +92,14 @@ class MainWindow: Window {
         icon.fontSize = 12
         let btn = Button()
         btn.content = icon
-        btn.width = 28
-        btn.height = 28
         btn.minWidth = 0
         btn.minHeight = 0
-        btn.margin = Thickness(left: 4, top: 0, right: 4, bottom: 0)
-        btn.verticalAlignment = .center
-        btn.padding = Thickness(left: 0, top: 0, right: 0, bottom: 0)
+        // Match TabViewItem: OverlayCornerRadius=8, padding matching TabViewItemHeaderPadding
+        btn.cornerRadius = CornerRadius(topLeft: 8, topRight: 8, bottomRight: 8, bottomLeft: 8)
+        btn.padding = Thickness(left: 10, top: 0, right: 10, bottom: 0)
+        // 4px top/bottom margin to sit within strip like tab items; 2px right keeps it tight to first tab
+        btn.margin = Thickness(left: 4, top: 4, right: 2, bottom: 4)
+        btn.verticalAlignment = .stretch
         btn.allowFocusOnInteraction = false
         let transparent = SolidColorBrush(Colors.transparent)
         let hoverBrush = SolidColorBrush(UWP.Color(a: 0x18, r: 0x80, g: 0x80, b: 0x80))
@@ -115,6 +116,9 @@ class MainWindow: Window {
         btn.click.addHandler { [weak self] _, _ in
             self?.closeOtherTabs()
         }
+        let toolTip = ToolTip()
+        toolTip.content = tr("关闭其他标签")
+        try? ToolTipService.setToolTip(btn, toolTip)
         return btn
     }()
     private lazy var searchBox: AutoSuggestBox? = {
