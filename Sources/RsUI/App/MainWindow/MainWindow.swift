@@ -799,8 +799,19 @@ class MainWindow: Window {
         parts.headerBorder = nil
         tabPageViewPartsByID[tabID] = parts
 
-        // String headers are shown as tab titles; only UIElement headers are rendered inline
-        guard let view = page.header as? UIElement else {
+        // String header → 同时渲染为页面顶部 28pt 大标题 + 通过 title(for:) 用作 Tab 标签
+        // UIElement header → 直接渲染到页面顶部
+        let headerView: UIElement
+        if let text = page.header as? String {
+            let tb = TextBlock()
+            tb.text = text
+            tb.fontSize = 28
+            tb.fontWeight = FontWeights.semiBold
+            tb.textWrapping = .wrap
+            headerView = tb
+        } else if let view = page.header as? UIElement {
+            headerView = view
+        } else {
             return page.content
         }
 
@@ -812,9 +823,10 @@ class MainWindow: Window {
         grid.rowDefinitions.append(autoRow)
         grid.rowDefinitions.append(starRow)
 
-        // Row 0: UIElement header (no legacy NavigationView margin needed)
+        // Row 0: header — margin matches WinUI default NavigationViewHeaderMargin (56,44,0,0)
         let headerBorder = Border()
-        headerBorder.child = view
+        headerBorder.margin = Thickness(left: 56, top: 44, right: 0, bottom: 0)
+        headerBorder.child = headerView
         parts.headerBorder = headerBorder
 
         // Row 1: content
