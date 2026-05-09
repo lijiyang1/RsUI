@@ -266,41 +266,77 @@ class MainWindow: Window {
         return transition
     }
 
-    func navigate(to page: Page, transitionInfoOverride: NavigationTransitionInfo? = nil) {
-        let inNewTab = openInNewTabRequested
-        openInNewTabRequested = false
-        navigate(to: page, transitionInfoOverride: transitionInfoOverride, inNewTab: inNewTab)
+    func navigate(
+        to page: Page,
+        mode: NavigationOpenMode = .inplace,
+        transitionInfoOverride: NavigationTransitionInfo? = nil
+    ) {
+        let effective = resolveOpenMode(mode)
+        performNavigate(to: page, mode: effective, transitionInfoOverride: transitionInfoOverride)
     }
 
-    private func navigate(to page: Page, transitionInfoOverride: NavigationTransitionInfo? = nil, inNewTab: Bool) {
+    @discardableResult
+    func navigate(
+        to url: URL,
+        mode: NavigationOpenMode = .inplace,
+        transitionInfoOverride: NavigationTransitionInfo? = nil
+    ) -> Bool {
+        let effective = resolveOpenMode(mode)
+        return performNavigate(to: url, mode: effective, transitionInfoOverride: transitionInfoOverride)
+    }
+
+    /// NavigationViewItem 上 Ctrl+click 设置的 `openInNewTabRequested` 标记会把
+    /// `.inplace` 升级为 `.newTab`；调用者显式指定的非 inplace 模式不被覆盖。
+    private func resolveOpenMode(_ requested: NavigationOpenMode) -> NavigationOpenMode {
+        let flag = openInNewTabRequested
+        openInNewTabRequested = false
+        if requested == .inplace && flag {
+            return .newTab
+        }
+        return requested
+    }
+
+    private func performNavigate(
+        to page: Page,
+        mode: NavigationOpenMode,
+        transitionInfoOverride: NavigationTransitionInfo?
+    ) {
+        if mode == .newWindow {
+            MainWindow.openDetachedWindow(navigatingTo: page.url)
+            return
+        }
         viewModel.navigate(
             to: page,
             transitionInfoOverride: transitionInfoOverride,
-            inNewTab: inNewTab
+            inNewTab: mode != .inplace,
+            switchToTab: mode != .newTabBackground
         )
         renderSelectedTab()
     }
 
-    func navigate(to url: URL, transitionInfoOverride: NavigationTransitionInfo? = nil) -> Bool {
-        let inNewTab = openInNewTabRequested
-        openInNewTabRequested = false
-        return navigate(to: url, transitionInfoOverride: transitionInfoOverride, inNewTab: inNewTab)
-    }
-
     @discardableResult
-    private func navigate(to url: URL, transitionInfoOverride: NavigationTransitionInfo? = nil, inNewTab: Bool) -> Bool {
-        if !inNewTab, viewModel.currentPage?.url == url {
+    private func performNavigate(
+        to url: URL,
+        mode: NavigationOpenMode,
+        transitionInfoOverride: NavigationTransitionInfo?
+    ) -> Bool {
+        if mode == .newWindow {
+            MainWindow.openDetachedWindow(navigatingTo: url)
+            return true
+        }
+        // 仅在 inplace 模式下短路；其他模式（newTab / newTabBackground）允许重复打开同 URL
+        if mode == .inplace, viewModel.currentPage?.url == url {
             return true
         }
 
         if url == SettingsPage.url {
-            navigate(to: SettingsPage(), transitionInfoOverride: transitionInfoOverride, inNewTab: inNewTab)
+            performNavigate(to: SettingsPage(), mode: mode, transitionInfoOverride: transitionInfoOverride)
             return true
         } else {
             let context = WindowContext(owner: self)
             for module in App.context.modules {
                 if let page = module.navigationRequested(for: url, in: context) {
-                    navigate(to: page, transitionInfoOverride: transitionInfoOverride, inNewTab: inNewTab)
+                    performNavigate(to: page, mode: mode, transitionInfoOverride: transitionInfoOverride)
                     return true
                 }
             }
@@ -436,7 +472,7 @@ class MainWindow: Window {
         tabView.drop.addHandler { [weak self] _, _ in
             guard let self else { return }
             guard let drag = MainWindow.activeDrag, drag.sourceWindowID != ObjectIdentifier(self) else { return }
-            _ = self.navigate(to: drag.tabURL, transitionInfoOverride: SuppressNavigationTransitionInfo(), inNewTab: true)
+            _ = self.navigate(to: drag.tabURL, mode: .newTab, transitionInfoOverride: SuppressNavigationTransitionInfo())
         }
 
         setupTabDragHint()
@@ -521,7 +557,7 @@ class MainWindow: Window {
         }
 
         let tabItem = tabViewItem(for: tab)
-        if tabView.selectedItem as? TabViewItem !== tabItem {
+        if !tabViewItem(tabView.selectedItem as? TabViewItem, represents: ObjectIdentifier(tab)) {
             isSyncingTabSelection = true
             tabView.selectedItem = tabItem
             isSyncingTabSelection = false
@@ -551,23 +587,56 @@ class MainWindow: Window {
         isSyncingTabSelection = true
         defer { isSyncingTabSelection = false }
 
-        while items.size > viewModel.tabs.count {
-            items.removeAt(items.size - 1)
+        // Step 1: 按身份精确移除 items 中所有不再属于 viewModel.tabs 的 TabViewItem。
+        //   旧版只 `items.removeAt(items.size - 1)` 截尾，关闭非末尾 tab 时残留错位 item，
+        //   后续 insertAt 会试图把同一 UIElement 插到已存在位置 → "two parents" WinRT 异常。
+        var i: UInt32 = 0
+        while i < items.size {
+            if let item = items.getAt(i) as? TabViewItem,
+               let id = tabIDByName[item.name],
+               activeIDs.contains(id) {
+                i += 1
+            } else {
+                items.removeAt(i)
+            }
         }
 
+        // Step 2: 重排到目标顺序。如果目标 tabItem 已在 items 中（错位），先从原位置移除再插入。
         for (index, tab) in viewModel.tabs.enumerated() {
+            let id = ObjectIdentifier(tab)
             let tabItem = tabViewItem(for: tab)
-            if UInt32(index) < items.size, let item = items.getAt(UInt32(index)) as? TabViewItem, item === tabItem {
+            if UInt32(index) < items.size,
+               let item = items.getAt(UInt32(index)) as? TabViewItem,
+               tabViewItem(item, represents: id) {
                 continue
             }
 
-            if UInt32(index) < items.size {
-                items.removeAt(UInt32(index))
+            // 找一下 tabItem 是否已在 items 别处
+            var existingIndex: UInt32? = nil
+            var j: UInt32 = 0
+            while j < items.size {
+                if let item = items.getAt(j) as? TabViewItem,
+                   tabViewItem(item, represents: id) {
+                    existingIndex = j
+                    break
+                }
+                j += 1
+            }
+            if let existingIndex {
+                items.removeAt(existingIndex)
             }
             items.insertAt(UInt32(index), tabItem)
         }
         tabStripIDs = ids
         updateAllTabItemCloseStates()
+    }
+
+    private func tabViewItem(_ item: TabViewItem?, represents id: ObjectIdentifier) -> Bool {
+        guard let item else { return false }
+        if tabIDByName[item.name] == id {
+            return true
+        }
+        return tabItemsByID[id] === item
     }
 
     private func updateTabStripVisibility() {
@@ -576,11 +645,9 @@ class MainWindow: Window {
 
     private func openNewTabFromTabStrip() {
         if let url = firstNavigationItemURL() {
-            openInNewTabRequested = true
-            _ = navigate(to: url, transitionInfoOverride: SuppressNavigationTransitionInfo())
+            _ = navigate(to: url, mode: .newTab, transitionInfoOverride: SuppressNavigationTransitionInfo())
         } else {
-            openInNewTabRequested = true
-            navigate(to: SettingsPage(), transitionInfoOverride: SuppressNavigationTransitionInfo())
+            navigate(to: SettingsPage(), mode: .newTab, transitionInfoOverride: SuppressNavigationTransitionInfo())
         }
     }
 
@@ -862,20 +929,29 @@ class MainWindow: Window {
     /// 这种异常发生在 COM callback 路径里，会从 `try!` 抛出但传不到 Swift 主线程，
     /// 进程不会真正终止，但相关 UI 操作会失败、日志会污染。
     private static func safelyAssignChild(_ child: UIElement, toBorder border: Border) {
-        if let parent = try? VisualTreeHelper.getParent(child) {
-            if let parentBorder = parent as? Border {
-                parentBorder.child = nil
-            } else if let parentPanel = parent as? Panel {
-                var idx: UInt32 = 0
-                if parentPanel.children.indexOf(child, &idx) {
-                    parentPanel.children.removeAt(idx)
-                }
-            } else if let parentContent = parent as? ContentControl {
-                parentContent.content = nil
-            }
-            // 其他 parent 类型暂不处理；如有需要后续可扩展
-        }
+        detachFromVisualParent(child)
         border.child = child
+    }
+
+    /// 把 element 从其当前 visual parent 上断开。覆盖 Border / Panel / ContentControl /
+    /// ContentPresenter 这几种最常见的 parent 类型。其他类型（如 ItemsControl 直接挂载
+    /// arbitrary UIElement，理论上不应该出现）打日志方便排查。
+    private static func detachFromVisualParent(_ element: UIElement) {
+        guard let parent = try? VisualTreeHelper.getParent(element) else { return }
+        if let parentBorder = parent as? Border {
+            parentBorder.child = nil
+        } else if let parentPanel = parent as? Panel {
+            var idx: UInt32 = 0
+            if parentPanel.children.indexOf(element, &idx) {
+                parentPanel.children.removeAt(idx)
+            }
+        } else if let parentContent = parent as? ContentControl {
+            parentContent.content = nil
+        } else if let parentPresenter = parent as? ContentPresenter {
+            parentPresenter.content = nil
+        } else {
+            print("[RsUI] detachFromVisualParent: unsupported parent type \(type(of: parent)) for child \(type(of: element)) — 'Element is already the child of another element' may follow")
+        }
     }
 
     private func syncNavigationSelection(for url: URL) {
@@ -916,8 +992,8 @@ class MainWindow: Window {
             guard let self else { return }
             _ = self.navigate(
                 to: url,
-                transitionInfoOverride: SuppressNavigationTransitionInfo(),
-                inNewTab: true
+                mode: .newTab,
+                transitionInfoOverride: SuppressNavigationTransitionInfo()
             )
         }) ?? false
 
@@ -926,8 +1002,8 @@ class MainWindow: Window {
                 guard let self else { return }
                 _ = self.navigate(
                     to: url,
-                    transitionInfoOverride: SuppressNavigationTransitionInfo(),
-                    inNewTab: true
+                    mode: .newTab,
+                    transitionInfoOverride: SuppressNavigationTransitionInfo()
                 )
             }
         }

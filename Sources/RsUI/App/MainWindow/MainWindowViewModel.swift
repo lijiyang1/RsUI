@@ -92,7 +92,12 @@ class MainWindowViewModel {
     }
 
     @discardableResult
-    func navigate(to page: Page, transitionInfoOverride: NavigationTransitionInfo? = nil, inNewTab: Bool = false) -> MainWindowTab {
+    func navigate(
+        to page: Page,
+        transitionInfoOverride: NavigationTransitionInfo? = nil,
+        inNewTab: Bool = false,
+        switchToTab: Bool = true
+    ) -> MainWindowTab {
         let tab: MainWindowTab
         if inNewTab || selectedTab == nil {
             tab = addTab(for: page, transitionInfoOverride: transitionInfoOverride)
@@ -105,8 +110,12 @@ class MainWindowViewModel {
             )
         }
 
-        selectedTab = tab
-        routePreferences.lastPageURL = page.url
+        // 后台新 tab（switchToTab == false）保持原选中 tab 不变；
+        // 第一次开 tab（selectedTab 之前为 nil）必须切过去否则没有可显示的 tab。
+        if switchToTab || selectedTab == nil {
+            selectedTab = tab
+            routePreferences.lastPageURL = page.url
+        }
         syncLegacyHistory()
         navigationRevision += 1
         return tab
