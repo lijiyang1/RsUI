@@ -1,4 +1,5 @@
 import Foundation
+import UWP
 import RsHelper
 
 struct WindowPosition: Preferable {
@@ -21,4 +22,15 @@ struct WindowLayout: Preferable {
 struct RoutePreferences: Preferable {
     var maxHistoryPages: Int = 32
     var lastPageURL: URL? = nil
+}
+
+extension WindowPosition {
+    var windowRect: UWP.RectInt32 {
+        return UWP.RectInt32(
+            x: Int32(windowX),
+            y: Int32(windowY),
+            width: Int32(windowWidth),
+            height: Int32(windowHeight)
+        )
+    }
 }
