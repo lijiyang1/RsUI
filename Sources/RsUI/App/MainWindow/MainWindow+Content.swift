@@ -22,7 +22,9 @@ extension MainWindow {
 
         configureNavigationViewSelection()
         configureTabViewEvents()
-        setupTabDragHint()
+        if MainWindow.isTabTearOffMergeEnabled {
+            setupTabDragHint()
+        }
         configurePaneEvents()
 
         let navWrapper = makeNavigationWrapper()
@@ -65,7 +67,9 @@ extension MainWindow {
             self?.openNewTabFromTabStrip()
         }
 
-        // Source: record which tab is being dragged and expose it via static state for cross-window drop
+        guard MainWindow.isTabTearOffMergeEnabled else { return }
+
+        // Source: record which tab is being dragged and expose it via static state for cross-window drop.
         tabView.tabDragStarting.addHandler { [weak self] _, args in
             guard let self, let args, let item = args.tab else { return }
             guard let tab = self.tab(for: item) else { return }
@@ -74,12 +78,12 @@ extension MainWindow {
             MainWindow.activeDrag = DragState(sourceWindowID: ObjectIdentifier(self), tabURL: url)
         }
 
-        // Source: flag that the tab was physically dropped outside (vs drag cancelled by Escape)
+        // Source: flag that the tab was physically dropped outside (vs drag cancelled by Escape).
         tabView.tabDroppedOutside.addHandler { [weak self] _, _ in
             self?.dragDroppedOutside = true
         }
 
-        // Source: decide outcome once drag completes
+        // Source: decide outcome once drag completes.
         tabView.tabDragCompleted.addHandler { [weak self] _, args in
             guard let self, let args else { return }
             let wasDroppedOutside = self.dragDroppedOutside
@@ -93,20 +97,18 @@ extension MainWindow {
             guard self.viewModel.tabs.contains(where: { $0 === tab }) else { return }
 
             if args.dropResult == .none {
-                // No valid drop target accepted the drag; tear-off only when physically dropped (not Escape)
                 guard wasDroppedOutside else { return }
                 let url = tab.currentPage?.url
                 self.viewModel.close(tab: tab)
                 self.renderSelectedTab()
                 if let url { MainWindow.openDetachedWindow(navigatingTo: url) }
             } else {
-                // Another window's TabView accepted the drop; close the tab from this window
                 self.viewModel.close(tab: tab)
                 self.renderSelectedTab()
             }
         }
 
-        // Destination: accept tab drops from other windows' TabViews
+        // Destination: accept tab drops from other windows' TabViews.
         tabView.dragOver.addHandler { [weak self] _, args in
             guard let self, let args else { return }
             guard let drag = MainWindow.activeDrag, drag.sourceWindowID != ObjectIdentifier(self) else { return }

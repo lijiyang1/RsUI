@@ -20,6 +20,7 @@ class MainWindow: Window {
 
     var openInNewTabRequested: Bool = false
     var initialNavigationURL: URL? = nil
+    static var isTabTearOffMergeEnabled = false
     var tabDragHintBorder: Border? = nil
     var draggingTabForDrop: MainWindowTab? = nil
     var dragDroppedOutside = false
@@ -180,7 +181,9 @@ class MainWindow: Window {
         tabs.margin = Thickness(left: 0, top: -1, right: 0, bottom: 0)
         tabs.canDragTabs = true
         tabs.canReorderTabs = true
-        tabs.allowDrop = true
+        tabs.allowDropTabs = true
+        tabs.canTearOutTabs = false
+        tabs.allowDrop = MainWindow.isTabTearOffMergeEnabled
         return tabs
     } ()
     lazy var tabContentHost = Grid()
