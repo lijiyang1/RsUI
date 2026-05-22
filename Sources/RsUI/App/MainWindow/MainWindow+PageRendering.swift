@@ -10,10 +10,12 @@ final class PageViewParts {
 extension MainWindow {
     func title(for page: Page?) -> String {
         guard let page else { return MainWindow.tr("New Tab") }
+        if let title = page.tabTitle, !title.isEmpty {
+            return title
+        }
         if let text = page.header as? String, !text.isEmpty {
             return text
         }
-
         let host = page.url.host ?? page.url.absoluteString
         return host.isEmpty ? page.url.absoluteString : host
     }
@@ -27,10 +29,11 @@ extension MainWindow {
         parts.headerBorder = nil
         tabPageViewPartsByID[tabID] = parts
 
-        // String header → 同时渲染为页面顶部 28pt 大标题 + 通过 title(for:) 用作 Tab 标签
+        // String header → 受 showPageHeader 控制是否渲染为页面顶部 28pt 大标题；tab 标签由 title(for:) 提供
         // UIElement header → 直接渲染到页面顶部
         let headerView: UIElement
         if let text = page.header as? String {
+            guard page.showPageHeader else { return page.content }
             let tb = TextBlock()
             tb.text = text
             tb.fontSize = 28
