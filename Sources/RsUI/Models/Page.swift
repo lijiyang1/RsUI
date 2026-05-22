@@ -5,6 +5,7 @@ import WinUI
 public protocol Page: AnyObject {
     var url: URL { get }
     var header: Any? { get }
+    var title: String { get }
     var content: UIElement { get }
 }
 
