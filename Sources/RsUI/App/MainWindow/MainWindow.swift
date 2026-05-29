@@ -254,10 +254,21 @@ class MainWindow: Window {
     // MARK: - 初始化
     override init() {
         super.init()
+        bootstrap()
+    }
 
+    // setupContent 会触发 navigationView lazy var 求值，必须在那之前赋值。
+    // 用 init 参数承接，否则 openDetachedWindow 在 MainWindow() 返回后再赋值就晚了。
+    init(initialNavigationViewPaneOpen: Bool?, suppressLayoutPersistence: Bool) {
+        super.init()
+        self.initialNavigationViewPaneOpen = initialNavigationViewPaneOpen
+        self.suppressLayoutPersistence = suppressLayoutPersistence
+        bootstrap()
+    }
+
+    private func bootstrap() {
         setupWindow()
         setupContent()
-
         startObserving()
     }
 
