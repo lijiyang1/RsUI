@@ -13,7 +13,8 @@ extension MainWindow {
             left: navigationView.openPaneLength - splitterWidth / 2,
             top: 0, right: 0, bottom: 0
         )
-        b.visibility = viewModel.windowLayout.navigationViewPaneOpen ? .visible : .collapsed
+        let paneOpen = initialNavigationViewPaneOpen ?? viewModel.windowLayout.navigationViewPaneOpen
+        b.visibility = paneOpen ? .visible : .collapsed
         b.protectedCursor = try? InputSystemCursor.create(.sizeWestEast)
 
         setupSplitterPointerEvents(b)

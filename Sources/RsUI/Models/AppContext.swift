@@ -77,6 +77,30 @@ public class AppContext {
         return String(localized: keyAndValue, table: table, bundle: resourceBundle, locale: language.locale)
     }
 
+    /// Opens a brand-new `MainWindow` and navigates it to the given URL.
+    ///
+    /// Use this when there is no `WindowContext` at hand (background work,
+    /// global callbacks, app-level shortcuts). For module code that already
+    /// holds a `WindowContext`, prefer `WindowContext.open(_:mode:.newWindow)`
+    /// so the route goes through the module's `navigationRequested`.
+    ///
+    /// - Parameters:
+    ///   - url: The route URL to resolve in the new window.
+    ///   - collapseNavigationPane: When `true`, the new window starts with
+    ///     the NavigationView pane collapsed and its closing handler skips
+    ///     persisting the layout, so the collapsed chrome does not leak into
+    ///     subsequent windows. Use for viewer-style windows (e.g. slide
+    ///     presenters) where chrome would distract from content.
+    public func openNewWindow(
+        with url: URL,
+        collapseNavigationPane: Bool = false
+    ) {
+        MainWindow.openDetachedWindow(
+            navigatingTo: url,
+            collapseNavigationPane: collapseNavigationPane
+        )
+    }
+
     public func trxaml(_ xaml: String, _ table: String? = nil) -> String {
         // FIXME: Prior to Swift 6, need to write #/myregex/# instead of /myregex/
         let pattern = #/{x:Tr ([^}]+)}/#
