@@ -27,8 +27,10 @@ extension MainWindow {
 
             // TODO: appWindow.changed事件不工作，此处窗口最大化时记录有缺陷。其实也可以不保存，恢复窗口在中间即可。
             self.trackWindowPosition()
-            self.viewModel.windowLayout.navigationViewPaneOpen = self.navigationView.isPaneOpen
-            self.viewModel.windowLayout.navigationViewOpenPaneLength = self.navigationView.openPaneLength
+            if !self.suppressLayoutPersistence {
+                self.viewModel.windowLayout.navigationViewPaneOpen = self.navigationView.isPaneOpen
+                self.viewModel.windowLayout.navigationViewOpenPaneLength = self.navigationView.openPaneLength
+            }
             self.viewModel = nil
         }
         restoreWindowRect()

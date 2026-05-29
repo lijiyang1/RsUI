@@ -22,6 +22,11 @@ class MainWindow: Window {
     var initialNavigationURL: URL? = nil
     var initialPageFactory: ((WindowContext) -> Page)? = nil
     var initialNavigationTransitionInfoOverride: NavigationTransitionInfo? = nil
+    // nil → 使用 windowLayout 中持久化的 NavPane 状态；否则强制覆盖初始展开/折叠
+    var initialNavigationViewPaneOpen: Bool? = nil
+    // true → 关窗时不把本窗口的 NavPane 状态写回全局 windowLayout，
+    // 避免一次性 viewer 窗口污染主窗口的下次启动状态
+    var suppressLayoutPersistence: Bool = false
     static var isTabTearOffMergeEnabled = false
     var tabDragHintBorder: Border? = nil
     var draggingTabForDrop: MainWindowTab? = nil
@@ -37,6 +42,16 @@ class MainWindow: Window {
     var envObservationTask: Task<Void, Never>?
     var routeObservationTask: Task<Void, Never>?
     var isApplyingAppearance = false
+
+    // 全屏时整体 collapse，含 NavigationView + Splitter
+    var navWrapper: Grid?
+    // 全屏时挂到 root 的临时 overlay，退出时需摘除
+    var fullscreenOverlay: Border?
+    // reparent 出去的 frame，退出时挂回 tabContentHost
+    var fullscreenStashedFrame: PageTransitionHost?
+    var isInTabFullscreen = false
+    // setPresenter(.overlapped) 退出时不还原 maximize
+    var preFullscreenMaximized = false
 
     /// UI 主要组件
     static func tr(_ keyAndValue: String) -> String {
@@ -228,7 +243,7 @@ class MainWindow: Window {
         let length = viewModel.windowLayout.navigationViewOpenPaneLength
         nav.compactModeThresholdWidth = 0
         nav.expandedModeThresholdWidth = length + viewModel.windowLayout.navigationViewExpandedModeThresholdContentWidth
-        nav.isPaneOpen = viewModel.windowLayout.navigationViewPaneOpen
+        nav.isPaneOpen = initialNavigationViewPaneOpen ?? viewModel.windowLayout.navigationViewPaneOpen
         nav.openPaneLength = length
         nav.isTitleBarAutoPaddingEnabled = false
         nav.content = navigationContentRoot
@@ -239,10 +254,21 @@ class MainWindow: Window {
     // MARK: - 初始化
     override init() {
         super.init()
+        bootstrap()
+    }
 
+    // setupContent 会触发 navigationView lazy var 求值，必须在那之前赋值。
+    // 用 init 参数承接，否则 openDetachedWindow 在 MainWindow() 返回后再赋值就晚了。
+    init(initialNavigationViewPaneOpen: Bool?, suppressLayoutPersistence: Bool) {
+        super.init()
+        self.initialNavigationViewPaneOpen = initialNavigationViewPaneOpen
+        self.suppressLayoutPersistence = suppressLayoutPersistence
+        bootstrap()
+    }
+
+    private func bootstrap() {
         setupWindow()
         setupContent()
-
         startObserving()
     }
 

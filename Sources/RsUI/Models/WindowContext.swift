@@ -199,6 +199,70 @@ public struct WindowContext {
         return owner.navigate(to: url, mode: mode, transitionInfoOverride: transitionInfoOverride)
     }
 
+    // MARK: - Tab Fullscreen
+
+    /// Enters immersive fullscreen for the currently selected tab.
+    ///
+    /// Switches the OS-level presenter to fullscreen (hiding the system title bar and
+    /// taskbar) and collapses the application chrome — title bar, NavigationView,
+    /// TabView strip, and splitter — so the selected page's content occupies the entire
+    /// screen. The selected tab's `PageTransitionHost` is reparented to a root-level
+    /// overlay for the duration of fullscreen and restored to its tab content host on
+    /// exit. If the window was maximized before entering, the maximized state is
+    /// restored on exit.
+    ///
+    /// Fullscreen is exited automatically when the user presses `Esc`. Calling this
+    /// method while already in fullscreen is a no-op. There is no selected tab when the
+    /// tab strip is empty; in that case this call is also a no-op.
+    ///
+    /// Example:
+    /// ```swift
+    /// // From a toolbar button on a viewer page:
+    /// context.enterTabFullscreen()
+    /// ```
+    public func enterTabFullscreen() {
+        owner?.enterTabFullscreen()
+    }
+
+    /// Exits immersive fullscreen and restores the application chrome.
+    ///
+    /// Restores the OS presenter to overlapped, brings back the title bar / NavigationView
+    /// / TabView strip / splitter, and moves the page content back into its tab content
+    /// host. If the window was maximized before entering fullscreen, it is re-maximized
+    /// after exit. Calling this method while not in fullscreen is a no-op.
+    ///
+    /// You usually do not need to call this manually — `Esc` already exits fullscreen.
+    /// Use it when a page action implies leaving fullscreen (e.g. opening a settings
+    /// dialog that should not be obscured).
+    ///
+    /// Example:
+    /// ```swift
+    /// if context.isInTabFullscreen {
+    ///     context.exitTabFullscreen()
+    /// }
+    /// ```
+    public func exitTabFullscreen() {
+        owner?.exitTabFullscreen()
+    }
+
+    /// Whether the owning window is currently in tab fullscreen.
+    ///
+    /// `true` while between `enterTabFullscreen()` and `exitTabFullscreen()`. Use this
+    /// to drive UI state such as toggling a fullscreen button's icon or tooltip, or to
+    /// observe fullscreen transitions via `Page.startObserving`.
+    ///
+    /// Returns `false` if the owner window has already been released.
+    ///
+    /// Example:
+    /// ```swift
+    /// startObserving({ context.isInTabFullscreen }) { _, isFullscreen in
+    ///     viewer.setFullscreenState(isFullscreen)
+    /// }
+    /// ```
+    public var isInTabFullscreen: Bool {
+        owner?.isInTabFullscreen ?? false
+    }
+
     // MARK: - Detach / Restore
 
     /// Removes the currently selected tab from this window for a caller-managed transfer.

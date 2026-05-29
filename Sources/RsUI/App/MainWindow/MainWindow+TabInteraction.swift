@@ -118,9 +118,14 @@ extension MainWindow {
 
     static func openDetachedWindow(
         navigatingTo url: URL,
-        transitionInfoOverride: NavigationTransitionInfo? = nil
+        transitionInfoOverride: NavigationTransitionInfo? = nil,
+        collapseNavigationPane: Bool = false
     ) {
-        let window = MainWindow()
+        // 一次性 viewer 窗口：初始折叠 NavPane，且不把折叠状态回写到全局 windowLayout。
+        // 必须经 init 参数路径，因为 setupContent 一旦跑完 lazy navigationView 就定型了。
+        let window = collapseNavigationPane
+            ? MainWindow(initialNavigationViewPaneOpen: false, suppressLayoutPersistence: true)
+            : MainWindow()
         window.initialNavigationURL = url
         window.initialNavigationTransitionInfoOverride = transitionInfoOverride
         try? window.activate()
