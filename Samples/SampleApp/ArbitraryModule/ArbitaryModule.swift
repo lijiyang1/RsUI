@@ -40,40 +40,37 @@ final class ArbitaryModule: Module {
 
     func navigationViewMenuItemsRequired(in context: WindowContext) -> [NavigationViewItemBase] {
         let header = NavigationViewItemHeader()
-        header.content = tr("Header")
-        let navigationViewItem = NavigationViewItem.build(
-            iconGlyph: "\u{E7C3}",
-            label: tr("Arbitrary"),
-            url: "rs://\(id)",
-            actionGlyph: "\u{E8F4}",
-            actionTooltip: tr("actionTooltip"),
-            actionHandler: { _, _ in
-                context.pickFolder {
-                    print($0)
-                }
-            }
-        )
-        let sep = NavigationViewItemSeparator()
-        return [header, navigationViewItem, sep]
+        header.content = tr("Arbitrary")
+
+        let items: [NavigationViewItemBase] = [
+            header,
+            NavigationViewItem.build(iconGlyph: "\u{E80F}", label: tr("Overview"), url: "rs://\(id)"),
+            NavigationViewItem.build(iconGlyph: "\u{E740}", label: tr("Tab Fullscreen"), url: "rs://\(id)/fullscreen"),
+            NavigationViewItem.build(iconGlyph: "\u{ECCD}", label: tr("Navigation Modes"), url: "rs://\(id)/navigation"),
+            NavigationViewItem.build(iconGlyph: "\u{E8A7}", label: tr("Open or Focus"), url: "rs://\(id)/openorfocus"),
+            NavigationViewItem.build(iconGlyph: "\u{E78B}", label: tr("New Window"), url: "rs://\(id)/new-window"),
+            NavigationViewItem.build(iconGlyph: "\u{E771}", label: tr("Appearance"), url: "rs://\(id)/appearance"),
+            NavigationViewItem.build(iconGlyph: "\u{E8B7}", label: tr("Folder Picker"), url: "rs://\(id)/folder-picker"),
+        ]
+        return items
     }
 
     func navigationViewFooterMenuItemsRequired(in context: WindowContext) -> [NavigationViewItemBase] {
         let header = NavigationViewItemHeader()
         header.content = tr("Footer")
-        let navigationViewItem = NavigationViewItem.build(
-            iconGlyph: "\u{E7C3}",
-            label: tr("Arbitrary"),
-            url: "rs://\(id)",
+        let pickerItem = NavigationViewItem.build(
+            iconGlyph: "\u{E8B7}",
+            label: tr("Pick Folder…"),
+            url: "rs://\(id)/folder-picker",
             actionGlyph: "\u{E8F4}",
-            actionTooltip: tr("actionTooltip"),
+            actionTooltip: tr("Pick a folder right from the nav"),
             actionHandler: { _, _ in
                 context.pickFolder {
                     print($0)
                 }
             }
         )
-        let sep = NavigationViewItemSeparator()
-        return [sep, header, navigationViewItem]
+        return [NavigationViewItemSeparator(), header, pickerItem]
     }
 
     func settingsGroupRequired() -> (title: String, cards: [UIElement])? {
@@ -120,6 +117,23 @@ final class ArbitaryModule: Module {
 
     func navigationRequested(for url: URL, in context: WindowContext) -> RsUI.Page? {
         guard url.host == self.id else { return nil }
-        return ArbitaryPage(context: context)
+        switch url.path {
+        case "", "/":
+            return OverviewPage(context: context)
+        case "/fullscreen":
+            return FullscreenPage(context: context)
+        case "/navigation":
+            return NavigationModesPage(context: context)
+        case "/openorfocus":
+            return OpenOrFocusPage(context: context)
+        case "/new-window":
+            return NewWindowPage(context: context)
+        case "/appearance":
+            return AppearancePage(context: context)
+        case "/folder-picker":
+            return FolderPickerPage(context: context)
+        default:
+            return nil
+        }
     }
 }
