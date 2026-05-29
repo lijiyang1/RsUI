@@ -28,10 +28,13 @@ extension MainWindow {
         configurePaneEvents()
 
         let navWrapper = makeNavigationWrapper()
+        self.navWrapper = navWrapper
         root.children.append(navWrapper)
         try? Grid.setRow(navWrapper, 1)
 
         self.content = root
+
+        installFullscreenEscapeAccelerator(on: root)
     }
 
     private func configureNavigationViewSelection() {

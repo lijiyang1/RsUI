@@ -38,6 +38,16 @@ class MainWindow: Window {
     var routeObservationTask: Task<Void, Never>?
     var isApplyingAppearance = false
 
+    // 全屏时整体 collapse，含 NavigationView + Splitter
+    var navWrapper: Grid?
+    // 全屏时挂到 root 的临时 overlay，退出时需摘除
+    var fullscreenOverlay: Border?
+    // reparent 出去的 frame，退出时挂回 tabContentHost
+    var fullscreenStashedFrame: PageTransitionHost?
+    var isInTabFullscreen = false
+    // setPresenter(.overlapped) 退出时不还原 maximize
+    var preFullscreenMaximized = false
+
     /// UI 主要组件
     static func tr(_ keyAndValue: String) -> String {
         return App.context.tr(keyAndValue)
