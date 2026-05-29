@@ -44,6 +44,7 @@ final class ArbitaryPage: RsUI.Page {
         stack.children.append(makeFullscreenSection())
         stack.children.append(makeNavigationModesSection())
         stack.children.append(makeOpenOrFocusSection())
+        stack.children.append(makeViewerWindowSection())
         stack.children.append(makeAppearanceSection())
         stack.children.append(makeFolderPickerSection())
 
@@ -144,6 +145,32 @@ final class ArbitaryPage: RsUI.Page {
             _ = self.context.openOrFocus(self.url)
         }
         return SettingsGroup(tr("Open or Focus"), [card])
+    }
+
+    private func makeViewerWindowSection() -> UIElement {
+        let plainCard = SettingsCard(
+            headerIconGlyph: "\u{E78B}",
+            header: tr("openNewWindow"),
+            description: tr("App-level entry point; uses the persisted NavPane state.")
+        )
+        plainCard.isClickEnabled = true
+        plainCard.click.addHandler { [weak self] _, _ in
+            guard let self else { return }
+            App.context.openNewWindow(with: self.url)
+        }
+
+        let viewerCard = SettingsCard(
+            headerIconGlyph: "\u{E73F}",
+            header: tr("openNewWindow(collapseNavigationPane: true)"),
+            description: tr("Starts with the NavPane collapsed and skips writeback on close, so the one-shot window does not pollute the main window's next launch.")
+        )
+        viewerCard.isClickEnabled = true
+        viewerCard.click.addHandler { [weak self] _, _ in
+            guard let self else { return }
+            App.context.openNewWindow(with: self.url, collapseNavigationPane: true)
+        }
+
+        return SettingsGroup(tr("AppContext.openNewWindow"), [plainCard, viewerCard])
     }
 
     private func makeAppearanceSection() -> UIElement {
