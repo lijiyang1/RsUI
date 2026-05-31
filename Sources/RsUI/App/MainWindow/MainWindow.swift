@@ -27,8 +27,9 @@ class MainWindow: Window {
     // true → 关窗时不把本窗口的 NavPane 状态写回全局 windowLayout，
     // 避免一次性 viewer 窗口污染主窗口的下次启动状态
     var suppressLayoutPersistence: Bool = false
-    // true → 启动时跳过 currentPage / lastPageURL 恢复，直接选第一个 NavigationView 项。
-    // 任务栏 "New Window" 入口（--new-window 命令行）走这条路径，行为对齐 VSCode。
+    // When true, launch skips currentPage/lastPageURL restore and selects the
+    // first NavigationView item instead. The taskbar "New Window" entry
+    // (--new-window) takes this path, matching VSCode.
     var forceHomeOnLaunch: Bool = false
     static var isTabTearOffMergeEnabled = false
     var tabDragHintBorder: Border? = nil
