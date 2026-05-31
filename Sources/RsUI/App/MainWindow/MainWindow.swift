@@ -29,6 +29,8 @@ class MainWindow: Window {
     var suppressLayoutPersistence: Bool = false
     static var isTabTearOffMergeEnabled = false
     var tabDragHintBorder: Border? = nil
+    // 持有提示文本以便语言切换时重设（文本在 setupTabDragHint 创建时定格）
+    var tabDragHintText: TextBlock? = nil
     var draggingTabForDrop: MainWindowTab? = nil
     var dragDroppedOutside = false
 

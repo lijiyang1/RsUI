@@ -79,6 +79,7 @@ extension MainWindow {
         titleBar.title = self.title
         searchBox?.placeholderText = MainWindow.tr("searchControlsAndSamples")
         applyCloseOthersTooltip(to: closeOtherTabsButton)
+        tabDragHintText?.text = MainWindow.tr("TabDragHint")
 
         let context = WindowContext(owner: self)
         titleBarRightHeader.children.clear()
