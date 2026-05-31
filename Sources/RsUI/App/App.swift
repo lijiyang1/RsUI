@@ -10,6 +10,8 @@ open class App: SwiftApplication {
     let bundle: Bundle
     let moduleTypes: [Module.Type]
 
+    private let appInstanceCoordinator = AppInstanceCoordinator()
+
     public required convenience init() {
         self.init("SwiftWorks", "RsUI", .main, [])
     }
@@ -22,14 +24,35 @@ open class App: SwiftApplication {
 
         super.init()
     }
-    
+
+    // Stable across releases — the taskbar uses this to identify the app
+    // (pinning, jump list lookup) and it doubles as the single-instance key.
+    // Don't change once shipped.
+    private var appUserModelID: String { "\(group).\(product)" }
+
     override open func onLaunched(_ args: WinUI.LaunchActivatedEventArgs) {
+        if appInstanceCoordinator.redirectIfSecondary(key: appUserModelID) { return }
+
         // Need to init context after super.init() because some WinUI APIs require the application to be initialized
         App.context = AppContext.gui(group, product, bundle)
         App.context.modules = moduleTypes.map { $0.init() }
 
-        let mainWindow = MainWindow()
+        TaskbarNewWindow.register(aumid: appUserModelID, title: App.context.tr("newWindow"))
+
+        let mainWindow = launchHasFlag("--new-window", args) ? MainWindow(forceHomeOnLaunch: true) : MainWindow()
         try! mainWindow.activate()
+
+        // Primary instance: open a Home window in-process for each redirected launch.
+        appInstanceCoordinator.observe(uiQueue: mainWindow.dispatcherQueue) {
+            MainWindow.openDetachedWindowAtHome()
+        }
+    }
+
+    private func launchHasFlag(_ flag: String, _ args: WinUI.LaunchActivatedEventArgs) -> Bool {
+        if CommandLine.arguments.contains(flag) {
+            return true
+        }
+        return args.arguments.split(separator: " ").contains { $0 == flag }
     }
 
     override open func onShutdown(exitCode: Int32) {

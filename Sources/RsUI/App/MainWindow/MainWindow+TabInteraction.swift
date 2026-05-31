@@ -148,4 +148,12 @@ extension MainWindow {
         window.initialNavigationTransitionInfoOverride = transitionInfoOverride
         try? window.activate()
     }
+
+    // Opens a new top-level window in-process showing Home, skipping last-view
+    // restore. The taskbar "New Window" reaches this after being redirected to
+    // the primary instance.
+    static func openDetachedWindowAtHome() {
+        let window = MainWindow(forceHomeOnLaunch: true)
+        try? window.activate()
+    }
 }

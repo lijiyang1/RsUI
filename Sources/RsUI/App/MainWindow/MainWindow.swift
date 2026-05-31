@@ -27,6 +27,9 @@ class MainWindow: Window {
     // true → 关窗时不把本窗口的 NavPane 状态写回全局 windowLayout，
     // 避免一次性 viewer 窗口污染主窗口的下次启动状态
     var suppressLayoutPersistence: Bool = false
+    // When true, launch skips currentPage/lastPageURL restore and selects the
+    // first NavigationView item instead.
+    var forceHomeOnLaunch: Bool = false
     static var isTabTearOffMergeEnabled = false
     var tabDragHintBorder: Border? = nil
     // 持有提示文本以便语言切换时重设（文本在 setupTabDragHint 创建时定格）
@@ -271,6 +274,12 @@ class MainWindow: Window {
         super.init()
         self.initialNavigationViewPaneOpen = initialNavigationViewPaneOpen
         self.suppressLayoutPersistence = suppressLayoutPersistence
+        bootstrap()
+    }
+
+    init(forceHomeOnLaunch: Bool) {
+        super.init()
+        self.forceHomeOnLaunch = forceHomeOnLaunch
         bootstrap()
     }
 

@@ -113,6 +113,15 @@ extension MainWindow {
             return
         }
 
+        // Taskbar "New Window" / --new-window: skip currentPage/lastPageURL,
+        // force-select the first NavigationView item (Home) without polluting
+        // routePreferences.
+        if forceHomeOnLaunch {
+            forceHomeOnLaunch = false
+            navigationView.selectFirstItem()
+            return
+        }
+
         if let page = viewModel.currentPage {
             navigate(to: page)
         } else if let lastURL = viewModel.routePreferences.lastPageURL, navigate(to: lastURL) {
