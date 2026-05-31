@@ -186,6 +186,23 @@
         }
       }
     },
+    "newWindow" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "New Window"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新建窗口"
+          }
+        }
+      }
+    },
     "sample1" : {
       "extractionState" : "manual",
       "localizations" : {

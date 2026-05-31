@@ -33,6 +33,21 @@ let package = Package(
     ],
     targets: [
         .target(
+            name: "CRsUIJumpList",
+            publicHeadersPath: "include",
+            cxxSettings: [
+                .define("UNICODE"),
+                .define("_UNICODE"),
+            ],
+            linkerSettings: [
+                .linkedLibrary("ole32"),
+                .linkedLibrary("shell32"),
+                .linkedLibrary("shlwapi"),
+                .linkedLibrary("propsys"),
+                .linkedLibrary("uuid"),
+            ]
+        ),
+        .target(
             name: "RsUI",
             dependencies: [
                 .product(name: "CWinRT", package: "swift-cwinrt"),
@@ -42,6 +57,7 @@ let package = Package(
                 .product(name: "WinUI", package: "swift-winui"),
                 .product(name: "CppWinRT", package: "swift-cppwinrt"),
                 .product(name: "RsHelper", package: "RsHelper"),
+                "CRsUIJumpList",
             ],
         ),
         .executableTarget(

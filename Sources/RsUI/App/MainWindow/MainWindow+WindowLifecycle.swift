@@ -113,6 +113,14 @@ extension MainWindow {
             return
         }
 
+        // 任务栏 "New Window" / 命令行 --new-window：跳过 currentPage 与 lastPageURL，
+        // 强制选第一个 NavigationView 项（Home），不污染 routePreferences。
+        if forceHomeOnLaunch {
+            forceHomeOnLaunch = false
+            navigationView.selectFirstItem()
+            return
+        }
+
         if let page = viewModel.currentPage {
             navigate(to: page)
         } else if let lastURL = viewModel.routePreferences.lastPageURL, navigate(to: lastURL) {
