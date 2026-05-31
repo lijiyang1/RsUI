@@ -39,7 +39,7 @@ open class App: SwiftApplication {
         App.context = AppContext.gui(group, product, bundle)
         App.context.modules = moduleTypes.map { $0.init() }
 
-        TaskbarJumpList.registerNewWindow(aumid: appUserModelID, title: App.context.tr("newWindow"))
+        TaskbarNewWindow.register(aumid: appUserModelID, title: App.context.tr("newWindow"))
 
         let forceHome = parseForceHomeFromCommandLine(args)
         let mainWindow = forceHome ? MainWindow(forceHomeOnLaunch: true) : MainWindow()
