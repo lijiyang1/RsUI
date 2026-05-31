@@ -8,7 +8,7 @@ import RsHelper
 // redirect their activation to the primary and exit, so the primary opens the
 // new window in-process. Avoids cross-process races on the preferences JSON
 // and matches VSCode's behavior.
-final class SingleInstance {
+final class AppInstanceCoordinator {
     // Retained to keep the activated subscription alive for the app lifetime.
     private var keyInstance: AppInstance?
 

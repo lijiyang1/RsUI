@@ -10,7 +10,7 @@ open class App: SwiftApplication {
     let bundle: Bundle
     let moduleTypes: [Module.Type]
 
-    private let singleInstance = SingleInstance()
+    private let appInstanceCoordinator = AppInstanceCoordinator()
 
     public required convenience init() {
         self.init("SwiftWorks", "RsUI", .main, [])
@@ -31,9 +31,7 @@ open class App: SwiftApplication {
     private var appUserModelID: String { "\(group).\(product)" }
 
     override open func onLaunched(_ args: WinUI.LaunchActivatedEventArgs) {
-        // A secondary instance has handed its activation to the primary and is
-        // exiting — don't build a window here.
-        if singleInstance.redirectIfSecondary(key: appUserModelID) { return }
+        if appInstanceCoordinator.redirectIfSecondary(key: appUserModelID) { return }
 
         // Need to init context after super.init() because some WinUI APIs require the application to be initialized
         App.context = AppContext.gui(group, product, bundle)
@@ -41,24 +39,19 @@ open class App: SwiftApplication {
 
         TaskbarNewWindow.register(aumid: appUserModelID, title: App.context.tr("newWindow"))
 
-        let forceHome = parseForceHomeFromCommandLine(args)
-        let mainWindow = forceHome ? MainWindow(forceHomeOnLaunch: true) : MainWindow()
+        let mainWindow = launchHasFlag("--new-window", args) ? MainWindow(forceHomeOnLaunch: true) : MainWindow()
         try! mainWindow.activate()
 
-        // Primary instance: open a Home window in-process for each redirected
-        // launch.
-        singleInstance.observe(uiQueue: mainWindow.dispatcherQueue) {
+        // Primary instance: open a Home window in-process for each redirected launch.
+        appInstanceCoordinator.observe(uiQueue: mainWindow.dispatcherQueue) {
             MainWindow.openDetachedWindowAtHome()
         }
     }
 
-    private func parseForceHomeFromCommandLine(_ args: WinUI.LaunchActivatedEventArgs) -> Bool {
-        let flag = "--new-window"
+    private func launchHasFlag(_ flag: String, _ args: WinUI.LaunchActivatedEventArgs) -> Bool {
         if CommandLine.arguments.contains(flag) {
             return true
         }
-        // LaunchActivatedEventArgs.arguments is a space-joined string when the
-        // process is activated through certain shell paths (jump list included).
         return args.arguments.split(separator: " ").contains { $0 == flag }
     }
 
