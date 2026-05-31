@@ -130,11 +130,17 @@ class MainWindow: Window {
         btn.click.addHandler { [weak self] _, _ in
             self?.closeOtherTabs()
         }
-        let toolTip = ToolTip()
-        toolTip.content = MainWindow.tr("CloseOthers")
-        try? ToolTipService.setToolTip(btn, toolTip)
+        self.applyCloseOthersTooltip(to: btn)
         return btn
     }()
+
+    // tooltip 在按钮 lazy 求值时定格，语言切换后需重新应用本地化文案
+    func applyCloseOthersTooltip(to button: Button) {
+        let toolTip = ToolTip()
+        toolTip.content = MainWindow.tr("CloseOthers")
+        try? ToolTipService.setToolTip(button, toolTip)
+    }
+
     lazy var searchBox: AutoSuggestBox? = {
         // let box = AutoSuggestBox()
         // box.width = 360
