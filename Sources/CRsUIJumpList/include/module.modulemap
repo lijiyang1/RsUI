@@ -1,4 +1,0 @@
-module CRsUIJumpList {
-    header "RsUIJumpList.h"
-    export *
-}

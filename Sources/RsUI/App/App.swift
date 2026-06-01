@@ -37,7 +37,7 @@ open class App: SwiftApplication {
         App.context = AppContext.gui(group, product, bundle)
         App.context.modules = moduleTypes.map { $0.init() }
 
-        TaskbarNewWindow.register(aumid: appUserModelID, title: App.context.tr("newWindow"))
+        TaskbarNewWindow.register(title: App.context.tr("newWindow"))
 
         let mainWindow = launchHasFlag("--new-window", args) ? MainWindow(forceHomeOnLaunch: true) : MainWindow()
         try! mainWindow.activate()
