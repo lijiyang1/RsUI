@@ -30,18 +30,28 @@ class MainWindow: Window {
     // When true, launch skips currentPage/lastPageURL restore and selects the
     // first NavigationView item instead.
     var forceHomeOnLaunch: Bool = false
-    static var isTabTearOffMergeEnabled = false
-    var tabDragHintBorder: Border? = nil
-    // 持有提示文本以便语言切换时重设（文本在 setupTabDragHint 创建时定格）
-    var tabDragHintText: TextBlock? = nil
-    var draggingTabForDrop: MainWindowTab? = nil
-    var dragDroppedOutside = false
-
-    struct DragState {
-        let sourceWindowID: ObjectIdentifier
-        let tabURL: URL
+    // An empty window created to receive a tab torn out into a new window. It
+    // comes up with no tab (startup navigation is skipped) and waits for
+    // tabTearOutRequested to inject the torn tab; it also skips position restore.
+    var awaitTransferredTab: Bool = false
+    var isTearOutWindow: Bool = false
+    static var isTabTearOffMergeEnabled = true
+    // Tracks the single tab being torn out across windows. Drag is single-pointer
+    // on the UI thread, so at most one is ever in flight. `holder` follows the tab
+    // as it moves between windows during the drag; `receiver` is the floating
+    // window the native flow asked us to create. The receiver is resolved from
+    // HERE, not from args.newWindowId — that property reads back 0 in the
+    // tabTearOutRequested event, so we remember it ourselves.
+    struct PendingTearOut {
+        let tab: MainWindowTab
+        var holder: MainWindow
+        let receiver: MainWindow
     }
-    static var activeDrag: DragState? = nil
+    static var pendingTearOut: PendingTearOut? = nil
+    // Reused so the framework's repeated windowRequested calls within one drag
+    // (it over-fires, incl. speculative tears it never commits) don't leak empty
+    // windows.
+    static var spareReceiver: MainWindow? = nil
 
     // 持有 Observation Task 句柄，窗口关闭时 cancel，避免死窗口的 task 继续访问失效的 self.appWindow / self.viewModel
     var envObservationTask: Task<Void, Never>?
@@ -207,11 +217,14 @@ class MainWindow: Window {
         tabs.tabStripHeader = closeOtherTabsButton
         tabs.padding = Thickness(left: 0, top: 0, right: 0, bottom: 0)
         tabs.margin = Thickness(left: 0, top: -1, right: 0, bottom: 0)
+        // Native tab tear-out: canTearOutTabs hands the drag visuals and the
+        // window-follow animation to the OS; the tear-out event handlers only keep
+        // the model (MainWindowTab + its decoupled content frame) in step by moving
+        // it between windows. This native path supersedes the classic-drag
+        // cross-window merge, so allowDropTabs/allowDrop are not wired here.
         tabs.canDragTabs = true
         tabs.canReorderTabs = true
-        tabs.allowDropTabs = true
-        tabs.canTearOutTabs = false
-        tabs.allowDrop = MainWindow.isTabTearOffMergeEnabled
+        tabs.canTearOutTabs = MainWindow.isTabTearOffMergeEnabled
         return tabs
     } ()
     lazy var tabContentHost = Grid()
@@ -280,6 +293,15 @@ class MainWindow: Window {
     init(forceHomeOnLaunch: Bool) {
         super.init()
         self.forceHomeOnLaunch = forceHomeOnLaunch
+        bootstrap()
+    }
+
+    // Empty receiver window for a tear-out. Comes up with no tab and skips
+    // position restore; the torn tab is injected by tabTearOutRequested.
+    init(tearOutReceiver: Bool) {
+        super.init()
+        self.awaitTransferredTab = tearOutReceiver
+        self.isTearOutWindow = tearOutReceiver
         bootstrap()
     }
 

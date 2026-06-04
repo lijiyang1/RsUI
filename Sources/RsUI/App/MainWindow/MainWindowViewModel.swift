@@ -70,8 +70,12 @@ class MainWindowViewModel {
     var selectedTab: MainWindowTab? = nil
     var navigationRevision: Int = 0
 
-    var backwardPages: [Page] = []
-    var forwardPages: [Page] = []
+    var backwardPages: [Page] {
+        selectedTab?.backwardPages ?? []
+    }
+    var forwardPages: [Page] {
+        selectedTab?.forwardPages ?? []
+    }
     var currentPage: Page? {
         selectedTab?.currentPage
     }
@@ -100,7 +104,8 @@ class MainWindowViewModel {
     ) -> MainWindowTab {
         let tab: MainWindowTab
         if inNewTab || selectedTab == nil {
-            tab = addTab(for: page, transitionInfoOverride: transitionInfoOverride)
+            tab = MainWindowTab(page: page, transitionInfoOverride: transitionInfoOverride)
+            tabs.append(tab)
         } else {
             tab = selectedTab!
             tab.navigate(
@@ -110,13 +115,10 @@ class MainWindowViewModel {
             )
         }
 
-        // 后台新 tab（switchToTab == false）保持原选中 tab 不变；
-        // 第一次开 tab（selectedTab 之前为 nil）必须切过去否则没有可显示的 tab。
         if switchToTab || selectedTab == nil {
             selectedTab = tab
             routePreferences.lastPageURL = page.url
         }
-        syncLegacyHistory()
         navigationRevision += 1
         return tab
     }
@@ -126,7 +128,6 @@ class MainWindowViewModel {
 
         selectedTab.goBack(transitionInfoOverride)
         routePreferences.lastPageURL = currentPage?.url
-        syncLegacyHistory()
         navigationRevision += 1
     }
 
@@ -135,7 +136,6 @@ class MainWindowViewModel {
 
         selectedTab.goForward(transitionInfoOverride)
         routePreferences.lastPageURL = currentPage?.url
-        syncLegacyHistory()
         navigationRevision += 1
     }
 
@@ -160,7 +160,6 @@ class MainWindowViewModel {
             selectedTab = tab
             routePreferences.lastPageURL = page.url
         }
-        syncLegacyHistory()
         navigationRevision += 1
         return tab
     }
@@ -169,7 +168,6 @@ class MainWindowViewModel {
         guard tabs.contains(where: { $0 === tab }) else { return }
         selectedTab = tab
         routePreferences.lastPageURL = tab.currentPage?.url
-        syncLegacyHistory()
         navigationRevision += 1
     }
 
@@ -182,14 +180,17 @@ class MainWindowViewModel {
             selectedTab = tabs[min(index, tabs.count - 1)]
             routePreferences.lastPageURL = selectedTab?.currentPage?.url
         }
-        syncLegacyHistory()
         navigationRevision += 1
+    }
+
+    func reorder(to reordered: [MainWindowTab]) {
+        guard reordered.count == tabs.count else { return }
+        tabs = reordered
     }
 
     func closeOtherTabs() {
         guard let tab = selectedTab, tabs.count > 1 else { return }
         tabs = [tab]
-        syncLegacyHistory()
         navigationRevision += 1
     }
 
@@ -202,40 +203,31 @@ class MainWindowViewModel {
             selectedTab = tabs.isEmpty ? nil : tabs[min(index, tabs.count - 1)]
             routePreferences.lastPageURL = selectedTab?.currentPage?.url
         }
-        syncLegacyHistory()
         navigationRevision += 1
     }
 
-    /// Seeds this ViewModel with a tab transferred from another window.
-    func setTransferredTab(_ tab: MainWindowTab) {
+    /// Adopts an existing tab object dragged in from another window (merge),
+    /// preserving its back/forward history instead of re-navigating by URL.
+    @discardableResult
+    func adoptTab(
+        _ tab: MainWindowTab,
+        at index: Int? = nil,
+        transitionInfoOverride: NavigationTransitionInfo? = nil,
+        switchToTab: Bool = true
+    ) -> MainWindowTab {
+        guard !tabs.contains(where: { $0 === tab }) else { return tab }
+        tab.navigationTransitionInfo = transitionInfoOverride
         tab.needsRender = true
-        tabs = [tab]
-        selectedTab = tab
-        routePreferences.lastPageURL = tab.currentPage?.url
-        syncLegacyHistory()
+        if let index, index >= 0, index <= tabs.count {
+            tabs.insert(tab, at: index)
+        } else {
+            tabs.append(tab)
+        }
+        if switchToTab || selectedTab == nil {
+            selectedTab = tab
+            routePreferences.lastPageURL = tab.currentPage?.url
+        }
         navigationRevision += 1
-    }
-
-    func dumpHistory() {
-        for (index, page) in (selectedTab?.backwardPages ?? []).enumerated() {
-            log.info("\(index) <===\(page.url)")
-        }
-        log.info("-----------------------------------------------")
-        log.info("====\(currentPage?.url.absoluteString ?? "nil")")
-        log.info("-----------------------------------------------")
-        for (index, page) in (selectedTab?.forwardPages ?? []).enumerated() {
-            log.info("\(index) ===>\(page.url)")
-        }
-    }
-
-    private func addTab(for page: Page, transitionInfoOverride: NavigationTransitionInfo?) -> MainWindowTab {
-        let tab = MainWindowTab(page: page, transitionInfoOverride: transitionInfoOverride)
-        tabs.append(tab)
         return tab
-    }
-
-    private func syncLegacyHistory() {
-        backwardPages = selectedTab?.backwardPages ?? []
-        forwardPages = selectedTab?.forwardPages ?? []
     }
 }

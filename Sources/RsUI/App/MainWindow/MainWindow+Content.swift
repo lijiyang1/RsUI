@@ -22,9 +22,6 @@ extension MainWindow {
 
         configureNavigationViewSelection()
         configureTabViewEvents()
-        if MainWindow.isTabTearOffMergeEnabled {
-            setupTabDragHint()
-        }
         configurePaneEvents()
 
         let navWrapper = makeNavigationWrapper()
@@ -72,55 +69,78 @@ extension MainWindow {
 
         guard MainWindow.isTabTearOffMergeEnabled else { return }
 
-        // Source: record which tab is being dragged and expose it via static state for cross-window drop.
-        tabView.tabDragStarting.addHandler { [weak self] _, args in
-            guard let self, let args, let item = args.tab else { return }
-            guard let tab = self.tab(for: item) else { return }
-            guard let url = tab.currentPage?.url else { return }
-            self.draggingTabForDrop = tab
-            MainWindow.activeDrag = DragState(sourceWindowID: ObjectIdentifier(self), tabURL: url)
-        }
+        // Native tear-out (CanTearOutTabs). The OS owns the drag visuals and the
+        // window-follow animation; these handlers only move our model — the
+        // MainWindowTab plus its decoupled content frame — between windows.
+        // Both the tab in flight and its receiving window are tracked in
+        // MainWindow.pendingTearOut. The receiver can't be read from the event:
+        // tabTearOutRequested gives args.newWindowId 0 even though we set it in
+        // the window-requested event, so we remember it ourselves, like the
+        // official CanTearOutTabs sample.
 
-        // Source: flag that the tab was physically dropped outside (vs drag cancelled by Escape).
-        tabView.tabDroppedOutside.addHandler { [weak self] _, _ in
-            self?.dragDroppedOutside = true
-        }
-
-        // Source: decide outcome once drag completes.
-        tabView.tabDragCompleted.addHandler { [weak self] _, args in
+        // A tab is being torn out and needs a window to land in. The framework
+        // over-fires this within one drag (incl. speculative tears it never
+        // commits), so tearOutReceiver() reuses one empty spare instead of
+        // leaking a window per call.
+        tabView.tabTearOutWindowRequested.addHandler { [weak self] _, args in
             guard let self, let args else { return }
-            let wasDroppedOutside = self.dragDroppedOutside
-            defer {
-                self.dragDroppedOutside = false
-                self.draggingTabForDrop = nil
-                MainWindow.activeDrag = nil
-            }
-            guard let tab = self.draggingTabForDrop else { return }
-            guard self.viewModel.tabs.count > 1 else { return }
-            guard self.viewModel.tabs.contains(where: { $0 === tab }) else { return }
-
-            if args.dropResult == .none {
-                guard wasDroppedOutside else { return }
-                let url = tab.currentPage?.url
-                self.viewModel.close(tab: tab)
-                self.renderSelectedTab()
-                if let url { MainWindow.openDetachedWindow(navigatingTo: url) }
-            } else {
-                self.viewModel.close(tab: tab)
-                self.renderSelectedTab()
-            }
+            // WinUI selects the pressed tab before the tear begins, so the
+            // selected tab is the one being torn out.
+            guard let tab = self.viewModel.selectedTab else { return }
+            let receiver = MainWindow.tearOutReceiver()
+            MainWindow.pendingTearOut = MainWindow.PendingTearOut(
+                tab: tab, holder: self, receiver: receiver
+            )
+            args.newWindowId = receiver.appWindow.id
         }
 
-        // Destination: accept tab drops from other windows' TabViews.
-        tabView.dragOver.addHandler { [weak self] _, args in
-            guard let self, let args else { return }
-            guard let drag = MainWindow.activeDrag, drag.sourceWindowID != ObjectIdentifier(self) else { return }
-            args.acceptedOperation = .move
+        // Commit the tear: move the torn tab from its holder into the
+        // receiver. Once moved, the spare is no longer empty, so release it.
+        tabView.tabTearOutRequested.addHandler { _, _ in
+            guard var pending = MainWindow.pendingTearOut,
+                  pending.holder !== pending.receiver else { return }
+            pending.holder.releaseTab(pending.tab)
+            pending.receiver.adoptTornTab(pending.tab)
+            pending.holder = pending.receiver
+            MainWindow.pendingTearOut = pending
+            MainWindow.spareReceiver = nil
         }
-        tabView.drop.addHandler { [weak self] _, _ in
-            guard let self else { return }
-            guard let drag = MainWindow.activeDrag, drag.sourceWindowID != ObjectIdentifier(self) else { return }
-            _ = self.navigate(to: drag.tabURL, mode: .newTab, transitionInfoOverride: SuppressNavigationTransitionInfo())
+
+        // A torn tab from another window is dragged over this strip — accept.
+        tabView.externalTornOutTabsDropping.addHandler { _, args in
+            guard let args, MainWindow.pendingTearOut != nil else { return }
+            args.allowDrop = true
+        }
+
+        // Merge: pull the torn tab from its current holder into this window at
+        // dropIndex, then discard the now-empty floating receiver.
+        tabView.externalTornOutTabsDropped.addHandler { [weak self] _, args in
+            guard let self, let args, let pending = MainWindow.pendingTearOut else { return }
+            let index = Int(args.dropIndex)
+            pending.holder.releaseTab(pending.tab)
+            self.adoptTornTab(pending.tab, at: index)
+            if pending.receiver !== self {
+                // Defer the close: when this handler returns the framework is
+                // still finalizing the drop on the receiver window, so closing it
+                // synchronously here crashes. Close on the next UI tick instead.
+                let receiver = pending.receiver
+                Task { @MainActor in receiver.closeIfEmpty() }
+            }
+            MainWindow.pendingTearOut = nil
+        }
+
+        // Persist an in-window reorder. Native tear-out suppresses
+        // tabDragCompleted, but a drag-reorder still mutates the TabItems
+        // collection directly, so tabItemsChanged is the only hook that sees it.
+        // A real tear-out also mutates the collection, but then a tab has LEFT
+        // this strip, so syncTabOrderFromStrip's count check bails: the strip
+        // must still hold exactly our model's tabs. That is what separates a
+        // reorder from a tear-out, not the tear flag. Skip only our own
+        // syncTabItems edits (isSyncingTabSelection); tabStripIDs stops the
+        // follow-up sync from looping.
+        tabView.tabItemsChanged.addHandler { [weak self] _, _ in
+            guard let self, !self.isSyncingTabSelection else { return }
+            self.syncTabOrderFromStrip()
         }
     }
 
