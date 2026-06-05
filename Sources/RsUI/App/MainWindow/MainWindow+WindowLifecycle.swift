@@ -19,6 +19,20 @@ extension MainWindow {
         self.closed.addHandler { [weak self] _, _ in
             guard let self else { return }
 
+            // A speculative tear-out can create an empty spare window that never
+            // gets a tab. The process exits only when all windows close, so a
+            // lingering spare keeps it alive after the user closes the real
+            // windows. Drop the empty spare and stale tear state on any close.
+            if MainWindow.spareReceiver === self {
+                MainWindow.spareReceiver = nil
+                MainWindow.pendingTearOut = nil
+            } else if let spare = MainWindow.spareReceiver,
+                      spare.viewModel?.tabs.isEmpty ?? true {
+                MainWindow.spareReceiver = nil
+                MainWindow.pendingTearOut = nil
+                try? spare.close()
+            }
+
             // 先 cancel observation tasks，避免死窗口的 task 继续访问 self.appWindow / self.viewModel
             self.envObservationTask?.cancel()
             self.routeObservationTask?.cancel()
@@ -79,7 +93,6 @@ extension MainWindow {
         titleBar.title = self.title
         searchBox?.placeholderText = MainWindow.tr("searchControlsAndSamples")
         applyCloseOthersTooltip(to: closeOtherTabsButton)
-        tabDragHintText?.text = MainWindow.tr("TabDragHint")
 
         let context = WindowContext(owner: self)
         titleBarRightHeader.children.clear()
@@ -95,6 +108,12 @@ extension MainWindow {
             for item in module.navigationViewFooterMenuItemsRequired(in: context) {
                 appendNavigationItem(item, true)
             }
+        }
+
+        // An empty tear-out receiver: the torn tab is injected later by
+        // tabTearOutRequested, so skip all startup navigation and come up blank.
+        if awaitTransferredTab {
+            return
         }
 
         if let makeInitialPage = initialPageFactory {
@@ -132,6 +151,9 @@ extension MainWindow {
     }
     
     private func restoreWindowRect() {
+        // A tear-out receiver is positioned by the OS as it follows the cursor —
+        // don't restore the saved main-window rect over it.
+        guard !isTearOutWindow else { return }
         guard let hwnd = self.appWindow, let presenter = hwnd.presenter as? OverlappedPresenter
         else { return }
 

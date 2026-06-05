@@ -111,6 +111,25 @@ extension MainWindow {
         updateAllTabItemCloseStates()
     }
 
+    // After an in-window drag reorder WinUI has already moved the TabViewItems,
+    // but viewModel.tabs still holds the old order. Rebuild it from the strip so
+    // the reorder survives later add/close operations, which re-sync items to
+    // the model order and would otherwise snap the tabs back.
+    func syncTabOrderFromStrip() {
+        guard let items = tabView.tabItems else { return }
+        var reordered: [MainWindowTab] = []
+        var i: UInt32 = 0
+        while i < items.size {
+            if let item = items.getAt(i) as? TabViewItem, let tab = tab(for: item) {
+                reordered.append(tab)
+            }
+            i += 1
+        }
+        guard reordered.count == viewModel.tabs.count else { return }
+        viewModel.reorder(to: reordered)
+        tabStripIDs = reordered.map { ObjectIdentifier($0) }
+    }
+
     private func tabViewItem(_ item: TabViewItem?, represents id: ObjectIdentifier) -> Bool {
         guard let item else { return false }
         if tabIDByName[item.name] == id {

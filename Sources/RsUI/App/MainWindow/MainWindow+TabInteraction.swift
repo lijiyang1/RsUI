@@ -51,40 +51,45 @@ extension MainWindow {
         renderSelectedTab()
     }
 
-    func setupTabDragHint() {
-        let hintText = TextBlock()
-        hintText.text = MainWindow.tr("TabDragHint")
-        hintText.fontSize = 12
-        hintText.textWrapping = .wrap
-        hintText.maxWidth = 460
-        hintText.foreground = SolidColorBrush(UWP.Color(a: 255, r: 245, g: 249, b: 255))
+    // MARK: - Native tear-out helpers
 
-        let hintBorder = Border()
-        hintBorder.background = SolidColorBrush(UWP.Color(a: 230, r: 21, g: 94, b: 175))
-        hintBorder.borderBrush = SolidColorBrush(UWP.Color(a: 255, r: 166, g: 215, b: 255))
-        hintBorder.borderThickness = Thickness(left: 1, top: 1, right: 1, bottom: 1)
-        hintBorder.cornerRadius = CornerRadius(topLeft: 10, topRight: 10, bottomRight: 10, bottomLeft: 10)
-        hintBorder.padding = Thickness(left: 12, top: 8, right: 12, bottom: 8)
-        hintBorder.horizontalAlignment = .center
-        hintBorder.verticalAlignment = .top
-        hintBorder.margin = Thickness(left: 0, top: 12, right: 0, bottom: 0)
-        hintBorder.opacity = 0
-        hintBorder.visibility = .collapsed
-        hintBorder.isHitTestVisible = false
-        hintBorder.child = hintText
-        try? Canvas.setZIndex(hintBorder, 99)
-        tabContentHost.children.append(hintBorder)
-        tabDragHintBorder = hintBorder
-        tabDragHintText = hintText
+    // Returns a window for the native tear-out to drop a tab into. Reuses the
+    // current empty spare if one exists (the framework asks repeatedly during a
+    // drag); otherwise creates and activates a fresh one so it owns a valid
+    // AppWindow.Id. The OS positions it as it follows the cursor.
+    static func tearOutReceiver() -> MainWindow {
+        if let spare = MainWindow.spareReceiver, spare.viewModel?.tabs.isEmpty ?? false {
+            return spare
+        }
+        let window = MainWindow(tearOutReceiver: true)
+        try? window.activate()
+        MainWindow.spareReceiver = window
+        return window
+    }
 
-        tabView.tabDragStarting.addHandler { [weak hintBorder] _, _ in
-            hintBorder?.visibility = .visible
-            hintBorder?.opacity = 1
-        }
-        tabView.tabDragCompleted.addHandler { [weak hintBorder] _, _ in
-            hintBorder?.opacity = 0
-            hintBorder?.visibility = .collapsed
-        }
+    // Removes a tab from this window's model (its strip item is reconciled away
+    // by renderSelectedTab); the MainWindowTab object — with its history — lives
+    // on to be adopted elsewhere.
+    func releaseTab(_ tab: MainWindowTab) {
+        guard viewModel != nil else { return }
+        viewModel.detachTab(tab)
+        renderSelectedTab()
+    }
+
+    // Adopts a torn tab into this window's model, building a fresh strip item for
+    // it. `at` is the merge drop position; nil appends (the empty-receiver case).
+    func adoptTornTab(_ tab: MainWindowTab, at index: Int? = nil) {
+        guard viewModel != nil else { return }
+        awaitTransferredTab = false
+        viewModel.adoptTab(tab, at: index, transitionInfoOverride: SuppressNavigationTransitionInfo())
+        renderSelectedTab()
+    }
+
+    // Closes this window once its last tab has been torn/merged away, so an
+    // emptied floating receiver doesn't linger.
+    func closeIfEmpty() {
+        guard viewModel?.tabs.isEmpty ?? false else { return }
+        try? close()
     }
 
     func focusTab(matchingURL url: URL) -> Bool {
